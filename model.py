@@ -52,7 +52,7 @@ class Model(tf.keras.Model):
 
     def step(self,input_observations):
         self.forward_pass(np.expand_dims(input_observations, 0))
-        print(self.policy)
+        #print(self.policy)
         return np.argmax(self.policy)
 
     def compute_loss(self, input_observations, actions, target_qs):
