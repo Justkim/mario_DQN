@@ -7,8 +7,10 @@ import flag
 import datetime
 from collections import deque
 from baselines import logger
+import ray
 
 from baselines.common.runners import AbstractEnvRunner
+import flag
 
 class Runner():
 
@@ -76,9 +78,7 @@ class Memory():
 class Trainer():
     def __init__(self,num_training_steps,num_epoch,
                  batch_size,learning_rate,discount_factor,env,num_action,
-                save_interval,log_interval,decay_rate,num_steps,memory_size):
-        if flag.ON_COLAB:
-            tf.enable_eager_execution()
+                save_interval,log_interval,decay_rate,num_steps,memory_size,update_target_net_interval):
         self.env=env
         self.training_steps=num_training_steps
         self.num_epoch=num_epoch
@@ -87,9 +87,12 @@ class Trainer():
         self.discount_factor=discount_factor
         self.batch_size = batch_size
         self.num_steps=num_steps
+        self.update_target_net_interval=update_target_net_interval
 
 
         self.new_model = Model(num_action)
+        if flag.DOUBLE_DQN:
+            self.target_model=Model(num_action)
         self.optimizer = tf.keras.optimizers.RMSprop(learning_rate=self.learning_rate)
 
         self.current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -97,10 +100,13 @@ class Trainer():
         log_dir='logs/' + self.current_time + '/log'
         if flag.TENSORBOARD_AVALAIBLE:
             self.train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+        else:
+            logger.configure(dir=log_dir)
+
         self.save_interval=save_interval
         self.memory=Memory(memory_size,batch_size)
         self.decay_rate=decay_rate
-        logger.configure(dir=log_dir)
+
         self.log_interval=log_interval
 
 
@@ -121,30 +127,42 @@ class Trainer():
                 loss=self.train_model(experience_slice)
                 self.loss_avg(loss)
 
-                loss_avg_result=self.loss_avg.result()
-                # print("training step {:03d}, Epoch {:03d}: Loss: {:.3f} ".format(train_step,epoch,
-                #                                                              loss_avg_result))
-                if flag.TENSORBOARD_AVALAIBLE:
-                    with self.train_summary_writer.as_default():
-                        tf.summary.scalar('loss_avg', loss_avg_result, step=epoch)
-                    # add more scalars
+            loss_avg_result=self.loss_avg.result()
+            print("training step {:03d}, Loss: {:.3f} ".format(train_step,
+                                                                         loss_avg_result))
+            if flag.TENSORBOARD_AVALAIBLE:
+                with self.train_summary_writer.as_default():
+                    tf.summary.scalar('loss_avg', loss_avg_result, step=train_step)
+            else:
+                if train_step % self.log_interval == 0:
+                    logger.record_tabular("train_step", train_step)
+                    logger.record_tabular("loss", loss_avg_result.numpy())
+                    logger.dump_tabular()
+            if flag.DOUBLE_DQN:
+                if train_step % self.update_target_net_interval:
+                    self.target_model.set_weights(self.new_model.get_weights())
 
-            if train_step % self.log_interval == 0:
-                logger.record_tabular("train_step", train_step)
-                logger.record_tabular("loss",  loss_avg_result.numpy())
-                logger.dump_tabular()
+
             self.loss_avg.reset_states()
             if train_step % self.save_interval==0:
                 self.new_model.save_weights('./models/step'+str(train_step)+'-'+self.current_time+'/'+'train')
+            self.loss_avg.reset_states()
 
-    def get_target_qs(self,rewards_array,next_observation_array,dones_array):
+    def get_target_qs(self,rewards_array,next_observation_array,dones_array,actions_array):
+        #clean code: check if u can make this loop more efficient
         target_q=[]
         for i in range(self.batch_size):
             if dones_array[i]:
                 target_q.append(rewards_array[i])
             else:
-                next_q=self.new_model.forward_pass(np.expand_dims(next_observation_array[i],0))
-                target_q.append(rewards_array[i]+self.discount_factor*np.max(next_q))
+
+                if flag.DOUBLE_DQN:
+                    action=self.new_model.step(next_observation_array[i])
+                    next_q = self.target_model.forward_pass(np.expand_dims(next_observation_array[i], 0))
+                    target_q.append(rewards_array[i] + self.discount_factor * next_q[0][action])
+                else:
+                    next_q = self.new_model.forward_pass(np.expand_dims(next_observation_array[i], 0))
+                    target_q.append(rewards_array[i]+self.discount_factor*np.max(next_q))
 
         return target_q
 
@@ -154,7 +172,7 @@ class Trainer():
         rewards_array = np.array([each[2] for each in slice])
         next_observations_array = np.array([each[3] for each in slice], ndmin=3)
         dones_array = np.array([each[4] for each in slice])
-        target_qs_list=self.get_target_qs(rewards_array,next_observations_array,dones_array)
+        target_qs_list=self.get_target_qs(rewards_array,next_observations_array,dones_array,actions_array)
         target_qs_array=np.array(target_qs_list)
         loss,grads=self.new_model.grad(observations_array, actions_array,target_qs_array )
         self.optimizer.apply_gradients(zip(grads, self.new_model.trainable_variables))
