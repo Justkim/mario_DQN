@@ -10,8 +10,8 @@ def main():
 
     if flag.TRAIN:
 
-        new_trainer=Trainer(num_training_steps=200000,num_epoch=2,batch_size=16,learning_rate=0.0001
-                            ,discount_factor=0.99,env=env,num_action=7,save_interval=100,log_interval=50,decay_rate=0.001,num_steps=16,memory_size=10000)
+        new_trainer=Trainer(num_training_steps=200000,num_epoch=3,batch_size=16,learning_rate=0.0001
+                            ,discount_factor=0.99,env=env,num_action=7,save_interval=100,log_interval=50,decay_rate=0.001,num_steps=16,memory_size=10000,update_target_net_interval=5)
 
         new_trainer.collect_experience_and_train()
       
