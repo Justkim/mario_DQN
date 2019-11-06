@@ -1,6 +1,12 @@
 import tensorflow as tf
 import numpy as np
 import flag
+
+# Added by Andrew Liao
+# for NoisyNet-DQN (using Factorised Gaussian noise)
+# modified from ```dense``` function
+
+
 class Model(tf.keras.Model):
     def __init__(self,num_action):
         super(Model,self).__init__(name='')
@@ -22,7 +28,7 @@ class Model(tf.keras.Model):
         self.activ3 = tf.keras.layers.Activation('elu')
         self.flatten=tf.keras.layers.Flatten(name="flatten")
         self.fc1=tf.keras.layers.Dense(512,activation='elu',name="fc1")
-        self.policy_layer=tf.keras.layers.Dense(self.num_action,activation=None,name="policy_tensor", kernel_regularizer=tf.keras.initializers.VarianceScaling) #maybe use variance_scaling_initializer?
+        self.policy_layer=tf.keras.layers.Dense(self.num_action,activation=None,name="policy_tensor", kernel_initializer=tf.keras.initializers.VarianceScaling) #maybe use variance_scaling_initializer?
 
 
     def forward_pass(self,input_observations):
