@@ -77,7 +77,7 @@ class RewardScaler(gym.RewardWrapper):
     """
     def reward(self, reward):
 
-        return reward/15
+        return reward/15 - 0.01
 
 
 
